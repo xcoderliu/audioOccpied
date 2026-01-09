@@ -40,7 +40,7 @@ class ViewController: UIViewController {
     
     private let delayLabel: UILabel = {
         let label = UILabel()
-        label.text = "延迟6秒开始"
+        label.text = "延迟2秒开始"
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
@@ -185,15 +185,7 @@ class ViewController: UIViewController {
             log("⚠️ 音频会话被中断")
         case .ended:
             log("✅ 音频会话中断结束")
-            
-            // 检查是否需要恢复音频播放
-            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                if options.contains(.shouldResume) {
-                    log("🎵 中断结束，恢复音频播放")
-                    _ = playAudioWithPlayer()
-                }
-            }
+            startAudio()
         @unknown default:
             log("❓ 未知的音频中断类型")
         }
@@ -236,7 +228,7 @@ class ViewController: UIViewController {
         
         // 根据延迟开关决定是否延迟执行
         if delaySwitch.isOn {
-            startDelayCountdown(seconds: 6)
+            startDelayCountdown(seconds: 2)
         } else {
             playButton.isSelected = true
             forceInterruptionTest()
