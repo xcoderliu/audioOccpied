@@ -758,6 +758,11 @@ class ViewController: UIViewController {
         }
         
         log("🔄 音频路由变化: \(reasonText)")
+        if reason == .categoryChange {
+            // 打印当前音频会话配置
+            let currentSession = AVAudioSession.sharedInstance()
+            logAudioSessionDetails(currentSession)
+        }
     }
     
     private func logAudioSessionDetails(_ session: AVAudioSession) {
