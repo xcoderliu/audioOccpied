@@ -52,9 +52,9 @@ class ViewController: UIViewController {
     }()
     
     private let methodSegment: UISegmentedControl = {
-        let items = ["AVAudioPlayer", "AVAudioEngine", "实时采集麦克风"]
+        let items = ["AVAudioPlayer", "AVAudioEngine", "实时采集麦克风", "强制中断测试"]
         let segment = UISegmentedControl(items: items)
-        segment.selectedSegmentIndex = 0
+        segment.selectedSegmentIndex = 3
         segment.translatesAutoresizingMaskIntoConstraints = false
         return segment
     }()
@@ -188,19 +188,16 @@ class ViewController: UIViewController {
     }
     
     private func setupNotifications() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
-        
+        // 这个测试应用是用来中断其他应用的，不需要监听自己的中断
+        // 只监听路由变化用于调试
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleRouteChange),
             name: AVAudioSession.routeChangeNotification,
             object: nil
         )
+        
+        log("ℹ️ 测试应用角色：中断其他应用，不监听自身中断")
     }
     
     @objc private func playButtonTapped() {
@@ -292,6 +289,8 @@ class ViewController: UIViewController {
             playWithAVAudioEngine()
         case 2:
             captureAudioRealtime()
+        case 3:
+            forceInterruptionTest()
         default:
             break
         }
@@ -546,6 +545,172 @@ class ViewController: UIViewController {
             log("   既采集麦克风又播放音频，应该能触发主app收到中断")
         } catch {
             log("❌ 播放失败: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - 强制中断测试
+    private func forceInterruptionTest() {
+        log("🚀 开始强制中断测试")
+        log("   目标：强制中断使用 .mixWithOthers 的主端应用")
+        
+        // 方法1：使用高优先级的音频模式
+        forceInterruptionWithHighPriorityMode()
+        
+        // 方法2：使用特定的音频配置
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.forceInterruptionWithSpecificConfiguration()
+        }
+        
+        // 方法3：模拟电话来电场景
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.simulatePhoneCallScenario()
+        }
+    }
+    
+    private func forceInterruptionWithHighPriorityMode() {
+        log("📞 方法1：使用高优先级音频模式")
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            
+            // 使用 .voiceChat 模式，这是系统优先级最高的模式之一
+            // 即使其他应用使用 .mixWithOthers，也会被中断
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+            
+            // 激活时使用 .notifyOthersOnDeactivation，这会通知其他应用
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            
+            log("✅ 配置为 .playAndRecord + .voiceChat 模式")
+            log("   这是系统优先级最高的音频模式之一")
+            log("   应该能强制中断其他应用的音频")
+            
+            // 立即开始播放音频
+            playAudioForInterruptionTest()
+            
+        } catch {
+            log("❌ 配置高优先级模式失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func forceInterruptionWithSpecificConfiguration() {
+        log("🎯 方法2：使用特定配置强制中断")
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            
+            // 使用 .videoChat 模式，这也是高优先级模式
+            // 添加 .defaultToSpeaker 和 .allowBluetooth
+            let options: AVAudioSession.CategoryOptions = [
+                .defaultToSpeaker,
+                .allowBluetooth,
+                .allowBluetoothA2DP
+            ]
+            
+            try session.setCategory(.playAndRecord, mode: .videoChat, options: options)
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            
+            log("✅ 配置为 .playAndRecord + .videoChat 模式")
+            log("   选项: defaultToSpeaker, allowBluetooth, allowBluetoothA2DP")
+            log("   这种配置常用于视频通话，优先级很高")
+            
+            // 开始实时采集麦克风（这会强制占用音频输入）
+            startForcedMicrophoneCapture()
+            
+        } catch {
+            log("❌ 配置特定模式失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func simulatePhoneCallScenario() {
+        log("📱 方法3：模拟电话来电场景")
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            
+            // 模拟电话场景：使用 .voiceChat 模式 + 特定选项
+            let options: AVAudioSession.CategoryOptions = [
+                .allowBluetooth,
+                .allowAirPlay,
+                .allowBluetoothA2DP
+            ]
+            
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+            
+            // 使用 .notifyOthersOnDeactivation 激活
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            
+            log("✅ 模拟电话来电配置完成")
+            log("   这种配置最接近真实的电话中断场景")
+            log("   即使应用使用 .mixWithOthers，电话也会强制中断")
+            
+            // 检查系统状态
+            if session.secondaryAudioShouldBeSilencedHint {
+                log("✅ 系统提示：其他音频应该被静音")
+            }
+            
+            if session.isOtherAudioPlaying {
+                log("✅ 检测到其他应用正在播放音频")
+                log("   应该会收到中断通知")
+            }
+            
+        } catch {
+            log("❌ 模拟电话场景失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func playAudioForInterruptionTest() {
+        guard let audioFileURL = generateTestAudioFile() else {
+            log("❌ 生成测试音频文件失败")
+            return
+        }
+        
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: audioFileURL)
+            audioPlayer?.delegate = self
+            audioPlayer?.numberOfLoops = -1
+            audioPlayer?.volume = 1.0
+            audioPlayer?.play()
+            
+            log("✅ 开始播放测试音频")
+            log("   音量: 100%")
+            log("   循环播放: 是")
+            
+        } catch {
+            log("❌ 播放测试音频失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func startForcedMicrophoneCapture() {
+        log("🎤 开始强制麦克风采集")
+        
+        audioEngine = AVAudioEngine()
+        guard let engine = audioEngine else { return }
+        
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        
+        // 安装 tap 强制采集麦克风数据
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] (buffer, time) in
+            // 强制占用麦克风，即使不处理数据
+            let channelData = buffer.floatChannelData
+            _ = channelData?.pointee
+            
+            // 定期记录以确认麦克风正在被占用
+            if Int(time.sampleTime) % Int(inputFormat.sampleRate) == 0 {
+                DispatchQueue.main.async {
+                    self?.log("📡 麦克风正在被强制占用中...")
+                }
+            }
+        }
+        
+        do {
+            try engine.start()
+            log("✅ 麦克风强制采集已启动")
+            log("   这会强制占用音频输入设备")
+            log("   使用麦克风的应用应该会收到中断")
+            
+        } catch {
+            log("❌ 启动麦克风采集失败: \(error.localizedDescription)")
         }
     }
     
