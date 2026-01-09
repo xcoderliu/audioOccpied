@@ -15,10 +15,14 @@ class ViewController: UIViewController {
     private var playerNode: AVAudioPlayerNode?
     private var audioRecorder: AVAudioRecorder?
     
+    private var delayTimer: Timer?
+    private var remainingSeconds: Int = 0
+    private var isInDelayCountdown: Bool = false
+    
     private let playButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setTitle("开始播放（抢占音频）", for: .normal)
-        button.setTitle("停止播放", for: .selected)
+        button.setTitle("开始中断测试", for: .normal)
+        button.setTitle("停止中断", for: .selected)
         button.backgroundColor = .systemBlue
         button.setTitleColor(.white, for: .normal)
         button.titleLabel?.font = .boldSystemFont(ofSize: 18)
@@ -27,36 +31,19 @@ class ViewController: UIViewController {
         return button
     }()
     
-    private let categorySegment: UISegmentedControl = {
-        let items = ["playback", "playAndRecord", "ambient"]
-        let segment = UISegmentedControl(items: items)
-        segment.selectedSegmentIndex = 0
-        segment.translatesAutoresizingMaskIntoConstraints = false
-        return segment
-    }()
-    
-    private let optionsSwitch: UISwitch = {
+    private let delaySwitch: UISwitch = {
         let sw = UISwitch()
-        sw.isOn = true
+        sw.isOn = false
         sw.translatesAutoresizingMaskIntoConstraints = false
         return sw
     }()
     
-    private let optionsDescLabel: UILabel = {
+    private let delayLabel: UILabel = {
         let label = UILabel()
-        label.text = "开启后会中断其他应用音频"
-        label.font = .systemFont(ofSize: 12)
-        label.textColor = .secondaryLabel
+        label.text = "延迟6秒开始"
+        label.font = .systemFont(ofSize: 14, weight: .medium)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
-    }()
-    
-    private let methodSegment: UISegmentedControl = {
-        let items = ["AVAudioPlayer", "AVAudioEngine", "实时采集麦克风", "强制中断测试"]
-        let segment = UISegmentedControl(items: items)
-        segment.selectedSegmentIndex = 3
-        segment.translatesAutoresizingMaskIntoConstraints = false
-        return segment
     }()
     
     private let infoLabel: UILabel = {
@@ -66,20 +53,17 @@ class ViewController: UIViewController {
         label.textColor = .secondaryLabel
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = """
-        📱 音频抢占测试工具
+        📱 音频中断测试工具
+        
+        功能：强制中断其他应用的音频播放
         
         使用步骤：
-        1. 先在主应用中播放音频
-        2. 选择音频会话类别
-        3. 开启"中断其他App"选项
-        4. 点击"开始播放"按钮
-        5. 观察主应用是否收到中断
+        1. 确保目标应用正在播放音频
+        2. 选择是否延迟6秒开始
+        3. 点击"开始中断"按钮
+        4. 观察目标应用是否收到中断通知
         
-        ⚠️ 主应用检查清单：
-        • 音频会话类别必须是 .playback 或 .playAndRecord
-        • 必须调用 setActive(true) 激活
-        • 必须正在播放音频
-        • 必须监听 interruptionNotification
+        日志会显示中断配置详情
         """
         return label
     }()
@@ -113,18 +97,11 @@ class ViewController: UIViewController {
     }
     
     private func setupUI() {
-        let categoryLabel = createLabel(text: "音频会话类别:")
-        let methodLabel = createLabel(text: "播放方式:")
-        let optionsLabel = createLabel(text: "中断其他App:")
         let logLabel = createLabel(text: "日志输出:")
         
         view.addSubview(infoLabel)
-        view.addSubview(categoryLabel)
-        view.addSubview(categorySegment)
-        view.addSubview(optionsLabel)
-        view.addSubview(optionsSwitch)
-        view.addSubview(methodLabel)
-        view.addSubview(methodSegment)
+        view.addSubview(delayLabel)
+        view.addSubview(delaySwitch)
         view.addSubview(playButton)
         view.addSubview(logLabel)
         view.addSubview(logTextView)
@@ -134,27 +111,13 @@ class ViewController: UIViewController {
             infoLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             infoLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             
-            categoryLabel.topAnchor.constraint(equalTo: infoLabel.bottomAnchor, constant: 25),
-            categoryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            delayLabel.topAnchor.constraint(equalTo: infoLabel.bottomAnchor, constant: 25),
+            delayLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             
-            categorySegment.topAnchor.constraint(equalTo: categoryLabel.bottomAnchor, constant: 8),
-            categorySegment.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            categorySegment.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            delaySwitch.centerYAnchor.constraint(equalTo: delayLabel.centerYAnchor),
+            delaySwitch.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             
-            optionsLabel.topAnchor.constraint(equalTo: categorySegment.bottomAnchor, constant: 20),
-            optionsLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            
-            optionsSwitch.centerYAnchor.constraint(equalTo: optionsLabel.centerYAnchor),
-            optionsSwitch.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            
-            methodLabel.topAnchor.constraint(equalTo: optionsLabel.bottomAnchor, constant: 20),
-            methodLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            
-            methodSegment.topAnchor.constraint(equalTo: methodLabel.bottomAnchor, constant: 8),
-            methodSegment.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            methodSegment.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            
-            playButton.topAnchor.constraint(equalTo: methodSegment.bottomAnchor, constant: 25),
+            playButton.topAnchor.constraint(equalTo: delayLabel.bottomAnchor, constant: 25),
             playButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             playButton.widthAnchor.constraint(equalToConstant: 260),
             playButton.heightAnchor.constraint(equalToConstant: 55),
@@ -201,98 +164,99 @@ class ViewController: UIViewController {
     }
     
     @objc private func playButtonTapped() {
+        if isInDelayCountdown {
+            // 如果在倒计时期间再次点击，取消倒计时
+            cancelDelayCountdown()
+            log("⏹️ 已取消延迟中断")
+            return
+        }
+        
         if playButton.isSelected {
             stopAudio()
+            playButton.isSelected = false
         } else {
             startAudio()
         }
-        playButton.isSelected.toggle()
     }
     
     @objc private func clearLog() {
         logTextView.text = ""
-        log("✅ 日志已清空（双击可清空日志）")
     }
     
     private func startAudio() {
-        let category: AVAudioSession.Category
-        let categoryName: String
+        log("🚀 开始音频中断测试")
         
-        switch categorySegment.selectedSegmentIndex {
-        case 0:
-            category = .playback
-            categoryName = "playback"
-        case 1:
-            category = .playAndRecord
-            categoryName = "playAndRecord"
-        case 2:
-            category = .ambient
-            categoryName = "ambient"
-        default:
-            category = .playback
-            categoryName = "playback"
-        }
-        
-        // 配置选项
-        var options: AVAudioSession.CategoryOptions = []
-        if !optionsSwitch.isOn {
-            // 如果不想中断其他App，添加混音选项
-            options.insert(.mixWithOthers)
-            log("ℹ️ 已添加 .mixWithOthers 选项（不会中断其他App）")
+        // 检查当前是否有其他音频在播放
+        let session = AVAudioSession.sharedInstance()
+        if session.isOtherAudioPlaying {
+            log("✅ 检测到其他应用正在播放音频")
         } else {
-            log("⚡️ 将尝试中断其他App的音频")
+            log("⚠️ 未检测到其他应用正在播放音频")
+            log("   请确保目标应用:")
+            log("   1. 设置了正确的音频会话类别")
+            log("   2. 调用了 setActive(true)")
+            log("   3. 开始播放音频")
         }
         
-        do {
-            let session = AVAudioSession.sharedInstance()
-            
-            // 检查当前是否有其他音频在播放
-            if session.isOtherAudioPlaying {
-                log("✅ 检测到其他应用正在播放音频")
-            } else {
-                log("⚠️ 未检测到其他应用正在播放音频")
-                log("   请确保主应用已经:")
-                log("   1. 设置了正确的 category")
-                log("   2. 调用了 setActive(true)")
-                log("   3. 开始播放音频")
-            }
-            
-            // 先停用旧会话
-            try session.setActive(false, options: .notifyOthersOnDeactivation)
-            
-            // 配置新的音频会话
-            try session.setCategory(category, mode: .default, options: options)
-            log("✅ 音频会话类别: \(categoryName)")
-            
-            // 激活音频会话
-            try session.setActive(true, options: [])
-            log("✅ 音频会话已激活")
-            
-            // 打印详细配置参数
-            logAudioSessionDetails(session)
-            
-            // 再次检查
-            if session.secondaryAudioShouldBeSilencedHint {
-                log("✅ 系统提示: 其他音频应该被静音")
-            }
-            
-        } catch {
-            log("❌ 音频会话配置失败: \(error.localizedDescription)")
-            playButton.isSelected = false
-            return
-        }
-        
-        switch methodSegment.selectedSegmentIndex {
-        case 0:
-            playWithAVAudioPlayer()
-        case 1:
-            playWithAVAudioEngine()
-        case 2:
-            captureAudioRealtime()
-        case 3:
+        // 根据延迟开关决定是否延迟执行
+        if delaySwitch.isOn {
+            startDelayCountdown(seconds: 6)
+        } else {
+            playButton.isSelected = true
             forceInterruptionTest()
-        default:
-            break
+        }
+    }
+    
+    private func startDelayCountdown(seconds: Int) {
+        remainingSeconds = seconds
+        isInDelayCountdown = true
+        playButton.isSelected = true
+        
+        log("⏰ 延迟\(seconds)秒后开始中断...")
+        updateCountdownButtonTitle()
+        
+        // 创建定时器并添加到RunLoop，确保在后台也能执行
+        delayTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self = self else {
+                timer.invalidate()
+                return
+            }
+            
+            self.remainingSeconds -= 1
+            self.updateCountdownButtonTitle()
+            
+            if self.remainingSeconds <= 0 {
+                timer.invalidate()
+                self.delayTimer = nil
+                self.isInDelayCountdown = false
+                self.log("🎯 延迟结束，开始中断测试")
+                self.forceInterruptionTest()
+            }
+        }
+        
+        // 确保定时器在后台模式下也能继续运行
+        if let timer = delayTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+    
+    private func cancelDelayCountdown() {
+        delayTimer?.invalidate()
+        delayTimer = nil
+        isInDelayCountdown = false
+        remainingSeconds = 0
+        playButton.isSelected = false
+        playButton.setTitle("开始中断测试", for: .normal)
+        playButton.setTitle("停止中断", for: .selected)
+    }
+    
+    private func updateCountdownButtonTitle() {
+        if isInDelayCountdown && remainingSeconds > 0 {
+            playButton.setTitle("取消 (\(remainingSeconds)s)", for: .normal)
+            playButton.setTitle("取消 (\(remainingSeconds)s)", for: .selected)
+        } else {
+            playButton.setTitle("开始中断测试", for: .normal)
+            playButton.setTitle("停止中断", for: .selected)
         }
     }
     
@@ -320,24 +284,23 @@ class ViewController: UIViewController {
         }
     }
     
-    // MARK: - AVAudioPlayer
-    private func playWithAVAudioPlayer() {
+    // MARK: - 音频播放
+    private func playAudioWithPlayer(volume: Float = 1, loops: Int = -1, description: String = "C大调旋律") -> Bool {
         guard let audioFileURL = generateTestAudioFile() else {
             log("❌ 生成测试音频文件失败")
-            playButton.isSelected = false
-            return
+            return false
         }
         
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: audioFileURL)
             audioPlayer?.delegate = self
-            audioPlayer?.numberOfLoops = -1 // 无限循环
-            audioPlayer?.volume = 1.0
+            audioPlayer?.numberOfLoops = loops
+            audioPlayer?.volume = volume
             
             let success = audioPlayer?.play() ?? false
             if success {
-                log("✅ AVAudioPlayer 开始播放（440Hz正弦波）")
-                log("   音量: \(audioPlayer?.volume ?? 0)")
+                log("✅ AVAudioPlayer 开始播放（\(description)）")
+                log("   音量: \(volume)")
                 log("   是否正在播放: \(audioPlayer?.isPlaying ?? false)")
                 
                 // 打印当前音频会话配置
@@ -346,222 +309,40 @@ class ViewController: UIViewController {
                 
                 // 延迟检查音频会话状态
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    let session = AVAudioSession.sharedInstance()
-                    self.log("📊 音频会话状态检查:")
-                    self.log("   category: \(session.category.rawValue)")
-                    self.log("   mode: \(session.mode.rawValue)")
-                    self.log("   isOtherAudioPlaying: \(session.isOtherAudioPlaying)")
-                    self.log("   secondaryAudioShouldBeSilencedHint: \(session.secondaryAudioShouldBeSilencedHint)")
-                    
-                    if let route = session.currentRoute.outputs.first {
-                        self.log("   输出设备: \(route.portType.rawValue)")
-                    }
+                    self.logAudioSessionStatus()
                 }
+                return true
             } else {
                 log("❌ AVAudioPlayer play() 返回 false")
-                playButton.isSelected = false
+                return false
             }
         } catch {
             log("❌ AVAudioPlayer 初始化失败: \(error.localizedDescription)")
-            playButton.isSelected = false
+            return false
         }
     }
     
-    // MARK: - AVAudioEngine
-    private func playWithAVAudioEngine() {
-        audioEngine = AVAudioEngine()
-        playerNode = AVAudioPlayerNode()
-        
-        guard let engine = audioEngine, let player = playerNode else { return }
-        
-        engine.attach(player)
-        
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        
-        if let buffer = generateSineWaveBuffer(frequency: 440, duration: 1.0, format: format) {
-            player.scheduleBuffer(buffer, at: nil, options: .loops)
-        }
-        
-        do {
-            try engine.start()
-            player.play()
-            log("✅ AVAudioEngine 开始播放（440Hz正弦波）")
-            
-            // 打印当前音频会话配置
-            let session = AVAudioSession.sharedInstance()
-            logAudioSessionDetails(session)
-        } catch {
-            log("❌ AVAudioEngine 启动失败: \(error.localizedDescription)")
-            playButton.isSelected = false
-        }
-    }
     
-    // MARK: - 边播放边录音
-    private func playAndRecord() {
-        // 必须使用 playAndRecord 类别
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.setActive(true)
-            log("✅ 音频会话已配置为 playAndRecord")
-            
-            // 打印详细配置参数
-            logAudioSessionDetails(session)
-        } catch {
-            log("❌ 配置 playAndRecord 失败: \(error.localizedDescription)")
-            playButton.isSelected = false
-            return
-        }
-        
-        // 1. 开始播放
-        guard let audioFileURL = generateTestAudioFile() else {
-            log("❌ 生成测试音频文件失败")
-            playButton.isSelected = false
-            return
-        }
-        
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: audioFileURL)
-            audioPlayer?.delegate = self
-            audioPlayer?.numberOfLoops = -1
-            audioPlayer?.volume = 1.0
-            audioPlayer?.play()
-            log("✅ 开始播放音频")
-        } catch {
-            log("❌ 播放失败: \(error.localizedDescription)")
-        }
-        
-        // 2. 同时开始录音（数据直接扔掉）
-        let recordURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_record_\(Date().timeIntervalSince1970).m4a")
-        
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.low.rawValue
-        ]
-        
-        do {
-            audioRecorder = try AVAudioRecorder(url: recordURL, settings: settings)
-            audioRecorder?.record()
-            log("✅ 开始录音（麦克风已被占用）")
-            log("   这会触发使用麦克风的主app收到中断")
-        } catch {
-            log("❌ 录音失败: \(error.localizedDescription)")
-        }
-    }
     
-    // MARK: - 实时采集麦克风+播放
-    private func captureAudioRealtime() {
-        // 使用 .playAndRecord 类别（既采集麦克风又播放音频）
-        do {
-            let session = AVAudioSession.sharedInstance()
-            
-            var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker]
-            
-            // 根据开关决定是否中断其他音频
-            if !optionsSwitch.isOn {
-                options.insert(.mixWithOthers)
-                log("ℹ️ 添加 .mixWithOthers - 不会中断其他App")
-            } else {
-                log("⚡️ 未添加 .mixWithOthers - 将尝试中断其他App")
-            }
-            
-            try session.setCategory(.playAndRecord, mode: .default, options: options)
-            try session.setActive(true)
-            log("✅ 音频会话已配置为 .playAndRecord（采集+播放）")
-            
-            // 打印详细配置参数
-            logAudioSessionDetails(session)
-        } catch {
-            log("❌ 配置音频会话失败: \(error.localizedDescription)")
-            playButton.isSelected = false
-            return
-        }
-        
-        // 使用 AVAudioEngine 实时采集麦克风
-        audioEngine = AVAudioEngine()
-        guard let engine = audioEngine else { return }
-        
-        let inputNode = engine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        
-        log("🎤 麦克风格式:")
-        log("   采样率: \(inputFormat.sampleRate) Hz")
-        log("   声道数: \(inputFormat.channelCount)")
-        log("   位深度: \(inputFormat.commonFormat.rawValue)")
-        
-        // 安装 tap 实时读取音频数据（这是关键！）
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] (buffer, time) in
-            // 实时处理音频数据
-            // 这里不做任何处理，只是读取数据以触发真正的麦克风占用
-            let channelData = buffer.floatChannelData
-            let channelDataValue = channelData?.pointee
-            
-            // 计算音量（可选，用于验证确实在采集）
-            if let data = channelDataValue {
-                var sum: Float = 0
-                let frameLength = Int(buffer.frameLength)
-                for i in 0..<frameLength {
-                    let value = data[i]
-                    sum += value * value
-                }
-                let rms = sqrt(sum / Float(frameLength))
-                
-                // 每秒打印一次音量
-                if Int(time.sampleTime) % Int(inputFormat.sampleRate) == 0 {
-                    DispatchQueue.main.async {
-                        self?.log("📊 实时音量: \(String(format: "%.4f", rms))")
-                    }
-                }
-            }
-        }
-        
-        do {
-            try engine.start()
-            log("✅ 开始实时采集麦克风数据")
-            log("   这种方式最接近真实的音频输入场景")
-        } catch {
-            log("❌ 启动麦克风采集失败: \(error.localizedDescription)")
-            playButton.isSelected = false
-            return
-        }
-        
-        // 同时播放音频
-        guard let audioFileURL = generateTestAudioFile() else {
-            log("❌ 生成测试音频文件失败")
-            playButton.isSelected = false
-            return
-        }
-        
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: audioFileURL)
-            audioPlayer?.delegate = self
-            audioPlayer?.numberOfLoops = -1
-            audioPlayer?.volume = 1.0
-            audioPlayer?.play()
-            log("✅ 同时开始播放音频")
-            log("   既采集麦克风又播放音频，应该能触发主app收到中断")
-        } catch {
-            log("❌ 播放失败: \(error.localizedDescription)")
-        }
-    }
     
     // MARK: - 强制中断测试
     private func forceInterruptionTest() {
         log("🚀 开始强制中断测试")
         log("   目标：强制中断使用 .mixWithOthers 的主端应用")
         
-        // 方法1：使用高优先级的音频模式
+        // 首先播放音乐
+        playAudioForInterruptionTest()
+        log("🎵 开始播放测试音乐（C大调旋律）")
+        
+        // 方法1：使用高优先级的音频模式（只配置，不重复播放音乐）
         forceInterruptionWithHighPriorityMode()
         
-        // 方法2：使用特定的音频配置
+        // 方法2：使用特定的音频配置（只配置，不重复播放音乐）
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.forceInterruptionWithSpecificConfiguration()
         }
         
-        // 方法3：模拟电话来电场景
+        // 方法3：模拟电话来电场景（只配置，不重复播放音乐）
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.simulatePhoneCallScenario()
         }
@@ -583,9 +364,6 @@ class ViewController: UIViewController {
             log("✅ 配置为 .playAndRecord + .voiceChat 模式")
             log("   这是系统优先级最高的音频模式之一")
             log("   应该能强制中断其他应用的音频")
-            
-            // 立即开始播放音频
-            playAudioForInterruptionTest()
             
         } catch {
             log("❌ 配置高优先级模式失败: \(error.localizedDescription)")
@@ -613,16 +391,13 @@ class ViewController: UIViewController {
             log("   选项: defaultToSpeaker, allowBluetooth, allowBluetoothA2DP")
             log("   这种配置常用于视频通话，优先级很高")
             
-            // 开始实时采集麦克风（这会强制占用音频输入）
-            startForcedMicrophoneCapture()
-            
         } catch {
             log("❌ 配置特定模式失败: \(error.localizedDescription)")
         }
     }
     
     private func simulatePhoneCallScenario() {
-        log("📱 方法3：模拟电话来电场景")
+        log("📱 方法3：模拟电话来电场景（使用麦克风）")
         
         do {
             let session = AVAudioSession.sharedInstance()
@@ -631,7 +406,8 @@ class ViewController: UIViewController {
             let options: AVAudioSession.CategoryOptions = [
                 .allowBluetooth,
                 .allowAirPlay,
-                .allowBluetoothA2DP
+                .allowBluetoothA2DP,
+                .defaultToSpeaker  // 电话通常使用扬声器
             ]
             
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
@@ -640,8 +416,9 @@ class ViewController: UIViewController {
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             
             log("✅ 模拟电话来电配置完成")
+            log("   配置: .playAndRecord + .voiceChat")
+            log("   选项: allowBluetooth, allowAirPlay, allowBluetoothA2DP, defaultToSpeaker")
             log("   这种配置最接近真实的电话中断场景")
-            log("   即使应用使用 .mixWithOthers，电话也会强制中断")
             
             // 检查系统状态
             if session.secondaryAudioShouldBeSilencedHint {
@@ -653,78 +430,188 @@ class ViewController: UIViewController {
                 log("   应该会收到中断通知")
             }
             
+            // 关键：开始使用麦克风（模拟通话）
+            startMicrophoneForPhoneCall()
+            
+            // 同时播放一些音频（模拟通话声音）
+            playPhoneCallAudio()
+            
         } catch {
             log("❌ 模拟电话场景失败: \(error.localizedDescription)")
         }
     }
     
-    private func playAudioForInterruptionTest() {
-        guard let audioFileURL = generateTestAudioFile() else {
-            log("❌ 生成测试音频文件失败")
-            return
-        }
+    private func startMicrophoneForPhoneCall() {
+        log("🎤 开始使用麦克风（模拟通话）")
+        
+        // 创建新的音频引擎用于麦克风采集
+        let phoneCallEngine = AVAudioEngine()
         
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: audioFileURL)
-            audioPlayer?.delegate = self
-            audioPlayer?.numberOfLoops = -1
-            audioPlayer?.volume = 1.0
-            audioPlayer?.play()
+            let inputNode = phoneCallEngine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
             
-            log("✅ 开始播放测试音频")
-            log("   音量: 100%")
-            log("   循环播放: 是")
+            log("📡 麦克风配置:")
+            log("   采样率: \(inputFormat.sampleRate) Hz")
+            log("   声道数: \(inputFormat.channelCount)")
             
-        } catch {
-            log("❌ 播放测试音频失败: \(error.localizedDescription)")
-        }
-    }
-    
-    private func startForcedMicrophoneCapture() {
-        log("🎤 开始强制麦克风采集")
-        
-        audioEngine = AVAudioEngine()
-        guard let engine = audioEngine else { return }
-        
-        let inputNode = engine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        
-        // 安装 tap 强制采集麦克风数据
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] (buffer, time) in
-            // 强制占用麦克风，即使不处理数据
-            let channelData = buffer.floatChannelData
-            _ = channelData?.pointee
-            
-            // 定期记录以确认麦克风正在被占用
-            if Int(time.sampleTime) % Int(inputFormat.sampleRate) == 0 {
-                DispatchQueue.main.async {
-                    self?.log("📡 麦克风正在被强制占用中...")
+            // 安装 tap 采集麦克风数据（模拟通话中的语音输入）
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] (buffer, time) in
+                // 模拟处理通话语音数据
+                let channelData = buffer.floatChannelData
+                let frameLength = Int(buffer.frameLength)
+                
+                // 计算音量（模拟通话中的语音活动）
+                if let data = channelData?.pointee {
+                    var sum: Float = 0
+                    for i in 0..<frameLength {
+                        let value = data[i]
+                        sum += value * value
+                    }
+                    let rms = sqrt(sum / Float(frameLength))
+                    
+                    // 定期记录音量（模拟通话中的语音检测）
+                    if Int(time.sampleTime) % Int(inputFormat.sampleRate) == 0 {
+                        DispatchQueue.main.async {
+                            self?.log("📞 通话中... 语音电平: \(String(format: "%.4f", rms))")
+                        }
+                    }
                 }
             }
-        }
-        
-        do {
-            try engine.start()
-            log("✅ 麦克风强制采集已启动")
-            log("   这会强制占用音频输入设备")
+            
+            // 启动音频引擎
+            try phoneCallEngine.start()
+            
+            // 保存引用
+            self.audioEngine = phoneCallEngine
+            
+            log("✅ 麦克风已启动（模拟通话中）")
+            log("   这会强制占用麦克风设备")
             log("   使用麦克风的应用应该会收到中断")
             
         } catch {
-            log("❌ 启动麦克风采集失败: \(error.localizedDescription)")
+            log("❌ 启动麦克风失败: \(error.localizedDescription)")
         }
+    }
+    
+    private func playPhoneCallAudio() {
+        log("🔊 播放通话音频（模拟对方声音）")
+        
+        // 生成一个简单的通话音频（模拟对方说话）
+        let phoneCallEngine = AVAudioEngine()
+        let playerNode = AVAudioPlayerNode()
+        
+        phoneCallEngine.attach(playerNode)
+        
+        let format = phoneCallEngine.mainMixerNode.outputFormat(forBus: 0)
+        phoneCallEngine.connect(playerNode, to: phoneCallEngine.mainMixerNode, format: format)
+        
+        // 生成一个简单的语音频率的正弦波（模拟通话声音）
+        if let buffer = generatePhoneCallBuffer(format: format) {
+            playerNode.scheduleBuffer(buffer, at: nil, options: .loops)
+        }
+        
+        do {
+            try phoneCallEngine.start()
+            playerNode.play()
+            
+            log("✅ 通话音频已开始播放")
+            log("   频率: 300-800Hz（模拟语音范围）")
+            log("   音量: 60%")
+            
+        } catch {
+            log("❌ 播放通话音频失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func generatePhoneCallBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let sampleRate = format.sampleRate
+        let duration = 2.0  // 2秒的缓冲区
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        
+        buffer.frameLength = frameCount
+        
+        let channels = Int(format.channelCount)
+        let floatChannelData = buffer.floatChannelData
+        
+        // 使用变化的频率模拟语音
+        let baseFrequency = 300.0
+        let frequencyRange = 500.0  // 300-800Hz
+        
+        for frame in 0..<Int(frameCount) {
+            // 随时间变化的频率（模拟语音的音调变化）
+            let time = Double(frame) / sampleRate
+            let frequency = baseFrequency + (frequencyRange * (0.5 + 0.5 * sin(2.0 * .pi * 2.0 * time)))
+            
+            let value = sin(2.0 * .pi * frequency * Double(frame) / sampleRate)
+            
+            // 应用包络使声音更自然
+            let envelope: Float
+            let frameProgress = Float(frame) / Float(frameCount)
+            if frameProgress < 0.1 {
+                envelope = frameProgress / 0.1  // 淡入
+            } else if frameProgress > 0.9 {
+                envelope = (1.0 - frameProgress) / 0.1  // 淡出
+            } else {
+                envelope = 1.0
+            }
+            
+            let amplitude: Float = 0.2 * envelope  // 较低的音量
+            
+            for channel in 0..<channels {
+                floatChannelData?[channel][frame] = Float(value) * amplitude
+            }
+        }
+        
+        return buffer
+    }
+    
+    private func playAudioForInterruptionTest() {
+        let success = playAudioWithPlayer(volume: 1, loops: -1, description: "测试音乐（C大调旋律）")
+        if success {
+            log("✅ 开始播放测试音频")
+            log("   音量: 80%")
+            log("   循环播放: 是")
+        }
+    }
+    
+    
+    // MARK: - 音频会话配置
+    private func configureAudioSession(
+        category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode = .default,
+        options: AVAudioSession.CategoryOptions = [],
+        activateOptions: AVAudioSession.SetActiveOptions = []
+    ) throws {
+        let session = AVAudioSession.sharedInstance()
+        
+        // 先停用旧会话
+        try session.setActive(false, options: .notifyOthersOnDeactivation)
+        
+        // 配置新的音频会话
+        try session.setCategory(category, mode: mode, options: options)
+        
+        // 激活音频会话
+        try session.setActive(true, options: activateOptions)
+        
+        // 打印详细配置参数
+        logAudioSessionDetails(session)
     }
     
     // MARK: - 音频生成
     private func generateTestAudioFile() -> URL? {
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_audio.m4a")
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("test_music.m4a")
         
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return fileURL
         }
         
         let sampleRate = 44100.0
-        let duration = 1.0
-        let frequency = 440.0
+        let duration = 4.0  // 延长到4秒以播放完整旋律
         
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -737,18 +624,19 @@ class ViewController: UIViewController {
             let audioFile = try AVAudioFile(forWriting: fileURL, settings: settings)
             let format = audioFile.processingFormat
             
-            if let buffer = generateSineWaveBuffer(frequency: frequency, duration: duration, format: format) {
+            if let buffer = generateSimpleMusicBuffer(duration: duration, format: format) {
                 try audioFile.write(from: buffer)
+                log("✅ 生成简单音乐文件成功（C大调旋律）")
                 return fileURL
             }
         } catch {
-            log("❌ 生成音频文件失败: \(error.localizedDescription)")
+            log("❌ 生成音乐文件失败: \(error.localizedDescription)")
         }
         
         return nil
     }
     
-    private func generateSineWaveBuffer(frequency: Double, duration: Double, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+    private func generateSimpleMusicBuffer(duration: Double, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let sampleRate = format.sampleRate
         let frameCount = AVAudioFrameCount(sampleRate * duration)
         
@@ -761,34 +649,65 @@ class ViewController: UIViewController {
         let channels = Int(format.channelCount)
         let floatChannelData = buffer.floatChannelData
         
-        for frame in 0..<Int(frameCount) {
-            let value = sin(2.0 * .pi * frequency * Double(frame) / sampleRate)
-            for channel in 0..<channels {
-                floatChannelData?[channel][frame] = Float(value) * 0.5
+        // C大调音阶频率 (C4, D4, E4, F4, G4, A4, B4, C5)
+        let cMajorScale: [Double] = [
+            261.63,  // C4
+            293.66,  // D4
+            329.63,  // E4
+            349.23,  // F4
+            392.00,  // G4
+            440.00,  // A4
+            493.88,  // B4
+            523.25   // C5
+        ]
+        
+        // 每个音符的持续时间（秒）
+        let noteDuration = duration / Double(cMajorScale.count)
+        let framesPerNote = Int(sampleRate * noteDuration)
+        
+        for noteIndex in 0..<cMajorScale.count {
+            let frequency = cMajorScale[noteIndex]
+            let startFrame = noteIndex * framesPerNote
+            let endFrame = min(startFrame + framesPerNote, Int(frameCount))
+            
+            for frame in startFrame..<endFrame {
+                // 计算当前帧在音符中的位置（用于淡入淡出）
+                let noteFrame = frame - startFrame
+                let noteProgress = Double(noteFrame) / Double(framesPerNote)
+                
+                // 淡入淡出包络
+                var envelope: Float = 1.0
+                if noteProgress < 0.1 {
+                    // 淡入
+                    envelope = Float(noteProgress / 0.1)
+                } else if noteProgress > 0.9 {
+                    // 淡出
+                    envelope = Float((1.0 - noteProgress) / 0.1)
+                }
+                
+                // 生成正弦波
+                let value = sin(2.0 * .pi * frequency * Double(frame) / sampleRate)
+                
+                // 应用包络和降低音量（0.3 * 包络）
+                let amplitude: Float = 0.3 * envelope
+                
+                for channel in 0..<channels {
+                    floatChannelData?[channel][frame] = Float(value) * amplitude
+                }
+            }
+        }
+        
+        // 填充剩余帧（如果有）
+        let totalNotesFrames = cMajorScale.count * framesPerNote
+        if totalNotesFrames < Int(frameCount) {
+            for frame in totalNotesFrames..<Int(frameCount) {
+                for channel in 0..<channels {
+                    floatChannelData?[channel][frame] = 0.0
+                }
             }
         }
         
         return buffer
-    }
-    
-    // MARK: - 通知处理
-    @objc private func handleInterruption(notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            return
-        }
-        
-        switch type {
-        case .began:
-            log("🔴 本App收到中断: 音频被其他应用抢占")
-        case .ended:
-            let options = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
-            log("🟢 本App中断结束\(shouldResume ? "（可以恢复播放）" : "")")
-        @unknown default:
-            break
-        }
     }
     
     @objc private func handleRouteChange(notification: Notification) {
@@ -835,6 +754,19 @@ class ViewController: UIViewController {
         log("   category: \(currentCategory)")
         log("   mode: \(currentMode)")
         log("   options: \(optionsStr)")
+    }
+    
+    private func logAudioSessionStatus() {
+        let session = AVAudioSession.sharedInstance()
+        log("📊 音频会话状态检查:")
+        log("   category: \(session.category.rawValue)")
+        log("   mode: \(session.mode.rawValue)")
+        log("   isOtherAudioPlaying: \(session.isOtherAudioPlaying)")
+        log("   secondaryAudioShouldBeSilencedHint: \(session.secondaryAudioShouldBeSilencedHint)")
+        
+        if let route = session.currentRoute.outputs.first {
+            log("   输出设备: \(route.portType.rawValue)")
+        }
     }
     
     private func log(_ message: String) {
