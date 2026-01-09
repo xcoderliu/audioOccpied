@@ -88,6 +88,7 @@ class ViewController: UIViewController {
         setupActions()
         setupNotifications()
         setupGestures()
+        setupAudioSessionInterruptionMonitoring()
         
         log("✅ 测试工具已启动")
     }
@@ -161,6 +162,41 @@ class ViewController: UIViewController {
         )
         
         log("ℹ️ 测试应用角色：中断其他应用，不监听自身中断")
+    }
+    
+    private func setupAudioSessionInterruptionMonitoring() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleAudioSessionInterruption(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+
+        switch type {
+        case .began:
+            log("⚠️ 音频会话被中断")
+        case .ended:
+            log("✅ 音频会话中断结束")
+            
+            // 检查是否需要恢复音频播放
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    log("🎵 中断结束，恢复音频播放")
+                    _ = playAudioWithPlayer()
+                }
+            }
+        @unknown default:
+            log("❓ 未知的音频中断类型")
+        }
     }
     
     @objc private func playButtonTapped() {
@@ -517,7 +553,7 @@ class ViewController: UIViewController {
             
             log("✅ 通话音频已开始播放")
             log("   频率: 300-800Hz（模拟语音范围）")
-            log("   音量: 60%")
+            log("   音量: 90%")
             
         } catch {
             log("❌ 播放通话音频失败: \(error.localizedDescription)")
@@ -560,7 +596,7 @@ class ViewController: UIViewController {
                 envelope = 1.0
             }
             
-            let amplitude: Float = 0.2 * envelope  // 较低的音量
+            let amplitude: Float = 1 * envelope  
             
             for channel in 0..<channels {
                 floatChannelData?[channel][frame] = Float(value) * amplitude
@@ -571,10 +607,10 @@ class ViewController: UIViewController {
     }
     
     private func playAudioForInterruptionTest() {
-        let success = playAudioWithPlayer(volume: 1, loops: -1, description: "测试音乐（C大调旋律）")
+        let success = playAudioWithPlayer(volume: 1.0, loops: -1, description: "测试音乐（C大调旋律）")
         if success {
             log("✅ 开始播放测试音频")
-            log("   音量: 80%")
+            log("   音量: 100%")
             log("   循环播放: 是")
         }
     }
@@ -688,8 +724,8 @@ class ViewController: UIViewController {
                 // 生成正弦波
                 let value = sin(2.0 * .pi * frequency * Double(frame) / sampleRate)
                 
-                // 应用包络和降低音量（0.3 * 包络）
-                let amplitude: Float = 0.3 * envelope
+                // 应用包络
+                let amplitude: Float = 1 * envelope
                 
                 for channel in 0..<channels {
                     floatChannelData?[channel][frame] = Float(value) * amplitude
